@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#87CEEB">
+<title>MineWorld 2D</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#000; overflow:hidden;
+  font-family:'Courier New',monospace;
+  user-select:none; -webkit-user-select:none;
+  touch-action:none;
+}
+canvas { display:block; image-rendering:pixelated; }
+
+#hud-top {
+  position:fixed; top:0; left:0; right:0;
+  background:rgba(0,0,0,0.65); padding:5px 10px;
+  display:flex; justify-content:space-between; align-items:center;
+  z-index:20; font-size:12px; color:#fff;
+}
+
+/* MODE TOGGLE */
+#mode-btn {
+  position:fixed; top:36px; right:8px;
+  z-index:20; padding:6px 12px;
+  border:2px solid #fff; border-radius:20px;
+  font-size:13px; font-weight:bold; cursor:pointer;
+  transition:all 0.2s;
+}
+#mode-btn.dig   { background:rgba(192,57,43,0.85); color:#fff; }
+#mode-btn.place { background:rgba(39,174,96,0.85); color:#fff; }
+
+/* HOTBAR */
+#hotbar {
+  position:fixed; bottom:60px; left:50%; transform:translateX(-50%);
+  display:flex; gap:3px; z-index:20;
+}
+.slot {
+  width:46px; height:46px;
+  background:rgba(0,0,0,0.75); border:2px solid #555;
+  border-radius:4px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  cursor:pointer; font-size:20px; position:relative;
+}
+.slot.active { border-color:#fff; background:rgba(255,255,255,0.18); }
+.slot-name { font-size:7px; color:#ccc; line-height:1; text-align:center; }
+.slot-cnt  { position:absolute; bottom:1px; right:3px; font-size:9px; color:#fff; font-weight:bold; text-shadow:1px 1px 0 #000; }
+
+/* CONTROLS */
+#dpad {
+  position:fixed; bottom:8px; left:8px;
+  display:grid; grid-template-columns:46px 46px 46px;
+  grid-template-rows:46px 46px; gap:3px; z-index:20;
+}
+.dpad-btn {
+  background:rgba(0,0,0,0.65); border:1.5px solid rgba(255,255,255,0.3);
+  border-radius:6px; color:#fff; font-size:20px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.dpad-btn:active { background:rgba(255,255,255,0.25); }
+#btn-jump { grid-column:2; grid-row:1; }
+#btn-left { grid-column:1; grid-row:2; }
+#btn-right { grid-column:3; grid-row:2; }
+
+/* TOOLTIP */
+#tip {
+  position:fixed; top:38px; left:50%; transform:translateX(-50%);
+  background:rgba(0,0,0,0.8); color:#fff;
+  padding:3px 12px; border-radius:4px; font-size:11px;
+  z-index:30; pointer-events:none; opacity:0; transition:opacity 0.3s;
+  white-space:nowrap;
+}
+#tip.show { opacity:1; }
+
+/* OVERLAY */
+#overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.88);
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  z-index:100; color:#fff; text-align:center; padding:20px;
+}
+#overlay h1 { font-size:30px; color:#f0c040; text-shadow:2px 2px 0 #6b4c00; margin-bottom:12px; }
+.howto { background:rgba(255,255,255,0.07); border-radius:8px; padding:14px 20px; margin-bottom:16px; line-height:2; font-size:13px; }
+.howto b { color:#f0c040; }
+.start-btn {
+  padding:13px 36px; background:linear-gradient(135deg,#4caf50,#1a7a30);
+  border:none; border-radius:6px; color:#fff;
+  font-size:16px; font-weight:bold; cursor:pointer; letter-spacing:1px;
+  font-family:'Courier New',monospace;
+}
+</style>
+</head>
+<body>
+
+<div id="hud-top">
+  <span id="hp">❤️❤️❤️❤️❤️</span>
+  <span>⛏️ MineWorld 2D</span>
+  <span id="xy">0,0</span>
+</div>
+
+<button id="mode-btn" class="dig">⛏️ ĐÀO</button>
+
+<canvas id="c"></canvas>
+
+<div id="tip"></div>
+
+<div id="hotbar"></div>
+
+<div id="dpad">
+  <button class="dpad-btn" id="btn-jump">▲</button>
+  <button class="dpad-btn" id="btn-left">◀</button>
+  <button class="dpad-btn" id="btn-right">▶</button>
+</div>
+
+<div id="overlay">
+  <h1>⛏️ MineWorld 2D</h1>
+  <div class="howto">
+    📱 <b>Chạm canvas</b> để đào/đặt khối<br>
+    🔄 Nút <b>⛏️ ĐÀO / 🧱 ĐẶT</b> để đổi chế độ<br>
+    🎒 Chọn vật liệu từ thanh dưới<br>
+    🏃 Nút <b>◀ ▶ ▲</b> để di chuyển<br>
+    💻 PC: Click trái = đào, Click phải = đặt
+  </div>
+  <button class="start-btn" id="start-btn">🚀 BẮT ĐẦU</button>
+</div>
+
+<script>
+// ===== SETUP =====
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const TILE = 22;
+const COLS = 100;
+const ROWS = 55;
+
+// Resize
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ===== BLOCKS =====
+const B = {
+  AIR:    {id:0, c:null,      name:'Không khí', e:'  '},
+  GRASS:  {id:1, c:'#5a8a2a', top:'#7bc043', name:'Cỏ',     e:'🟩'},
+  DIRT:   {id:2, c:'#8B5E3C', name:'Đất',        e:'🟫'},
+  STONE:  {id:3, c:'#888',    name:'Đá',         e:'⬜'},
+  WOOD:   {id:4, c:'#8B6914', name:'Gỗ',         e:'🪵'},
+  LEAF:   {id:5, c:'#2d6e1a', name:'Lá',         e:'🌿'},
+  SAND:   {id:6, c:'#e8d48b', name:'Cát',        e:'🟡'},
+  COAL:   {id:7, c:'#444',    name:'Than',       e:'⚫', ore:true},
+  IRON:   {id:8, c:'#a07850', name:'Sắt',        e:'🔶', ore:true},
+  GOLD:   {id:9, c:'#f0c040', name:'Vàng',       e:'✨', ore:true},
+  BEDROCK:{id:10,c:'#222',    name:'Đá tảng',    e:'⬛'},
+  GLASS:  {id:11,c:'rgba(173,216,230,0.45)', name:'Kính', e:'🔷'},
+  BRICK:  {id:12,c:'#b55239', name:'Gạch',       e:'🧱'},
+};
+
+// id -> block lookup
+const BID = {};
+Object.values(B).forEach(b => BID[b.id] = b);
+
+// ===== WORLD =====
+let W = [];
+
+function genWorld() {
+  W = Array.from({length:ROWS}, () => new Uint8Array(COLS));
+  let h = 20;
+  const heights = [];
+  for(let x=0;x<COLS;x++) {
+    h += (Math.random()-0.5)*2.5;
+    h = Math.max(14, Math.min(26, h));
+    heights.push(Math.round(h));
+  }
+
+  for(let x=0;x<COLS;x++) {
+    const sh = heights[x];
+    for(let y=0;y<ROWS;y++) {
+      if(y === ROWS-1)    { W[y][x] = B.BEDROCK.id; continue; }
+      if(y < sh-3)        { W[y][x] = B.AIR.id; continue; }
+      if(y === sh-3)      { W[y][x] = B.GRASS.id; continue; }
+      if(y < sh)          { W[y][x] = B.DIRT.id; continue; }
+      // Stone + ores
+      W[y][x] = B.STONE.id;
+      const r = Math.random();
+      if(y > sh+2 && r < 0.035) W[y][x] = B.COAL.id;
+      else if(y > sh+8 && r < 0.018) W[y][x] = B.IRON.id;
+      else if(y > sh+16 && r < 0.009) W[y][x] = B.GOLD.id;
+    }
+  }
+
+  // Trees
+  for(let x=3;x<COLS-3;x++) {
+    if(Math.random() < 0.07) {
+      const sh = heights[x]-3;
+      const th = 3 + Math.floor(Math.random()*3);
+      for(let i=0;i<th;i++) if(sh-i>=0) W[sh-i][x] = B.WOOD.id;
+      for(let lx=-2;lx<=2;lx++) for(let ly=-2;ly<=0;ly++) {
+        const nx=x+lx, ny=sh-th+ly;
+        if(nx>=0&&nx<COLS&&ny>=0&&ny<ROWS&&W[ny][nx]===B.AIR.id)
+          W[ny][nx]=B.LEAF.id;
+      }
+    }
+  }
+}
+
+// ===== PLAYER =====
+const P = {
+  x:5*TILE, y:8*TILE,
+  vx:0, vy:0,
+  w:TILE*0.8, h:TILE*1.8,
+  grounded:false,
+  hp:10,
+  slot:0,
+  inv:[
+    {id:B.DIRT.id,  n:64},
+    {id:B.STONE.id, n:64},
+    {id:B.WOOD.id,  n:32},
+    {id:B.BRICK.id, n:32},
+    {id:B.GLASS.id, n:32},
+    {id:B.SAND.id,  n:32},
+    {id:null, n:0}, // only dig
+  ]
+};
+
+// Camera
+let camX=0, camY=0;
+function updateCam() {
+  camX = P.x - canvas.width/2 + P.w/2;
+  camY = P.y - canvas.height/2 + P.h/2;
+  camX = Math.max(0, Math.min(COLS*TILE-canvas.width,  camX));
+  camY = Math.max(0, Math.min(ROWS*TILE-canvas.height, camY));
+}
+
+// ===== INPUT =====
+const keys = {};
+document.addEventListener('keydown', e => keys[e.key]=true);
+document.addEventListener('keyup',   e => keys[e.key]=false);
+
+// Mode: 'dig' or 'place'
+let mode = 'dig';
+const modeBtn = document.getElementById('mode-btn');
+modeBtn.addEventListener('click', () => {
+  mode = mode==='dig' ? 'place' : 'dig';
+  modeBtn.textContent = mode==='dig' ? '⛏️ ĐÀO' : '🧱 ĐẶT';
+  modeBtn.className   = mode==='dig' ? 'dig'     : 'place';
+  showTip(mode==='dig' ? 'Chế độ: ĐÀO' : 'Chế độ: ĐẶT');
+});
+
+// Mouse cursor world pos
+let mwx=0, mwy=0;
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mwx = (e.clientX-r.left)*(canvas.width/r.width)+camX;
+  mwy = (e.clientY-r.top)*(canvas.height/r.height)+camY;
+});
+
+// PC: left click = dig, right click = place
+canvas.addEventListener('click', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const wx = (e.clientX-r.left)*(canvas.width/r.width)+camX;
+  const wy = (e.clientY-r.top)*(canvas.height/r.height)+camY;
+  doAction(wx, wy, 'dig');
+});
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const wx = (e.clientX-r.left)*(canvas.width/r.width)+camX;
+  const wy = (e.clientY-r.top)*(canvas.height/r.height)+camY;
+  doAction(wx, wy, 'place');
+});
+
+// Mobile: touch on canvas = use current mode
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  const r = canvas.getBoundingClientRect();
+  mwx = (t.clientX-r.left)*(canvas.width/r.width)+camX;
+  mwy = (t.clientY-r.top)*(canvas.height/r.height)+camY;
+  doAction(mwx, mwy, mode);
+}, {passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  const r = canvas.getBoundingClientRect();
+  mwx = (t.clientX-r.left)*(canvas.width/r.width)+camX;
+  mwy = (t.clientY-r.top)*(canvas.height/r.height)+camY;
+}, {passive:false});
+
+// ===== ACTION =====
+function doAction(wx, wy, act) {
+  const tx = Math.floor(wx/TILE);
+  const ty = Math.floor(wy/TILE);
+  if(tx<0||tx>=COLS||ty<0||ty>=ROWS) return;
+
+  const dist = Math.hypot(wx-(P.x+P.w/2), wy-(P.y+P.h/2));
+  if(dist > TILE*6) { showTip('Quá xa! Lại gần hơn'); return; }
+
+  if(act==='dig') {
+    if(W[ty][tx]===B.BEDROCK.id) { showTip('Không thể đào đá tảng!'); return; }
+    if(W[ty][tx]!==B.AIR.id) {
+      showTip('Đào: '+(BID[W[ty][tx]]?.name||'Khối'));
+      spawnFX(tx*TILE+TILE/2, ty*TILE+TILE/2, BID[W[ty][tx]]?.c||'#888');
+      W[ty][tx] = B.AIR.id;
+    }
+  } else {
+    const s = P.inv[P.slot];
+    if(!s||s.id===null) { showTip('Hãy chọn vật liệu!'); return; }
+    if(s.n<=0) { showTip('Hết vật liệu!'); return; }
+    if(W[ty][tx]!==B.AIR.id) { showTip('Vị trí đã có khối!'); return; }
+    // Check collision with player
+    const px=Math.floor(P.x/TILE), py=Math.floor(P.y/TILE);
+    if(tx>=px&&tx<=px+1&&ty>=py&&ty<=py+2) { showTip('Không thể đặt vào người!'); return; }
+    W[ty][tx] = s.id;
+    s.n--;
+    showTip('Đặt: '+(BID[s.id]?.name||'Khối')+' (còn '+s.n+')');
+    renderHotbar();
+  }
+}
+
+// ===== FX =====
+let fx = [];
+function spawnFX(x,y,color) {
+  for(let i=0;i<8;i++) fx.push({
+    x,y, vx:(Math.random()-0.5)*5, vy:-Math.random()*5,
+    life:1, sz:2+Math.random()*3, c:color
+  });
+}
+function updateFX() {
+  fx = fx.filter(p => {
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.25; p.life-=0.06;
+    return p.life>0;
+  });
+}
+
+// ===== PHYSICS =====
+function solid(id) {
+  return id!==B.AIR.id && id!==B.LEAF.id && id!==B.GLASS.id;
+}
+function getB(tx,ty) {
+  if(tx<0||tx>=COLS||ty<0||ty>=ROWS) return B.STONE.id;
+  return W[ty][tx];
+}
+
+function updatePlayer() {
+  if(keys['ArrowLeft']||keys['a']||keys['A'])       P.vx = -3.5;
+  else if(keys['ArrowRight']||keys['d']||keys['D']) P.vx =  3.5;
+  else P.vx *= 0.75;
+
+  if((keys['ArrowUp']||keys['w']||keys['W']||keys[' '])&&P.grounded) {
+    P.vy = -9; P.grounded=false;
+  }
+
+  P.vy = Math.min(P.vy+0.4, 14);
+
+  // X
+  P.x += P.vx;
+  const lx=Math.floor(P.x/TILE), rx=Math.floor((P.x+P.w-0.1)/TILE);
+  for(let ty=Math.floor(P.y/TILE);ty<=Math.floor((P.y+P.h-0.1)/TILE);ty++) {
+    if(solid(getB(lx,ty))) { P.x=lx*TILE+TILE; P.vx=0; break; }
+    if(solid(getB(rx,ty))) { P.x=rx*TILE-P.w; P.vx=0; break; }
+  }
+
+  // Y
+  P.grounded=false;
+  P.y += P.vy;
+  const lx2=Math.floor(P.x/TILE), rx2=Math.floor((P.x+P.w-0.1)/TILE);
+  if(P.vy>=0) {
+    const by=Math.floor((P.y+P.h-0.1)/TILE);
+    for(let tx=lx2;tx<=rx2;tx++) {
+      if(solid(getB(tx,by))) { P.y=by*TILE-P.h; P.vy=0; P.grounded=true; break; }
+    }
+  } else {
+    const ty=Math.floor(P.y/TILE);
+    for(let tx=lx2;tx<=rx2;tx++) {
+      if(solid(getB(tx,ty))) { P.y=ty*TILE+TILE; P.vy=0; break; }
+    }
+  }
+
+  P.x = Math.max(0, Math.min(COLS*TILE-P.w, P.x));
+  P.y = Math.max(0, Math.min(ROWS*TILE-P.h, P.y));
+}
+
+// ===== RENDER =====
+function drawWorld() {
+  const sx=Math.max(0,Math.floor(camX/TILE));
+  const ex=Math.min(COLS,Math.ceil((camX+canvas.width)/TILE)+1);
+  const sy=Math.max(0,Math.floor(camY/TILE));
+  const ey=Math.min(ROWS,Math.ceil((camY+canvas.height)/TILE)+1);
+
+  for(let y=sy;y<ey;y++) for(let x=sx;x<ex;x++) {
+    const id=W[y][x]; if(id===B.AIR.id) continue;
+    const b=BID[id];
+    const px=x*TILE-camX, py=y*TILE-camY;
+    ctx.globalAlpha=1;
+    ctx.fillStyle=b.c;
+    ctx.fillRect(px,py,TILE,TILE);
+    if(b.top) { ctx.fillStyle=b.top; ctx.fillRect(px,py,TILE,4); }
+    if(b.ore) { ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fillRect(px+4,py+4,3,3); ctx.fillRect(px+13,py+13,3,3); }
+    ctx.globalAlpha=0.12; ctx.strokeStyle='#000'; ctx.lineWidth=0.5;
+    ctx.strokeRect(px,py,TILE,TILE);
+    ctx.globalAlpha=1;
+  }
+}
+
+function drawPlayer() {
+  const px=P.x-camX, py=P.y-camY;
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.beginPath(); ctx.ellipse(px+P.w/2,py+P.h,P.w/2,3,0,0,Math.PI*2); ctx.fill();
+  // Body
+  ctx.fillStyle='#4a7abf'; ctx.fillRect(px+2,py+P.h*0.45,P.w-4,P.h*0.5);
+  // Head
+  ctx.fillStyle='#f5c89a'; ctx.fillRect(px+P.w*0.15,py,P.w*0.7,P.h*0.4);
+  ctx.fillStyle='#5c3a1e'; ctx.fillRect(px+P.w*0.15,py,P.w*0.7,5);
+  ctx.fillStyle='#333'; ctx.fillRect(px+P.w*0.25,py+9,3,3); ctx.fillRect(px+P.w*0.58,py+9,3,3);
+  // Legs
+  ctx.fillStyle='#2d4a7a';
+  ctx.fillRect(px+2,py+P.h*0.85,P.w/2-3,P.h*0.15);
+  ctx.fillRect(px+P.w/2+1,py+P.h*0.85,P.w/2-3,P.h*0.15);
+}
+
+function drawFX() {
+  fx.forEach(p=>{
+    ctx.globalAlpha=p.life;
+    ctx.fillStyle=p.c;
+    ctx.fillRect(p.x-camX,p.y-camY,p.sz,p.sz);
+  });
+  ctx.globalAlpha=1;
+}
+
+function drawCursor() {
+  const tx=Math.floor(mwx/TILE), ty=Math.floor(mwy/TILE);
+  if(tx<0||tx>=COLS||ty<0||ty>=ROWS) return;
+  const dist=Math.hypot(mwx-(P.x+P.w/2),mwy-(P.y+P.h/2));
+  ctx.strokeStyle=dist<TILE*6?'rgba(255,255,255,0.8)':'rgba(255,0,0,0.5)';
+  ctx.lineWidth=1.5;
+  ctx.strokeRect(tx*TILE-camX,ty*TILE-camY,TILE,TILE);
+}
+
+function drawSky() {
+  const g=ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,'#4a90d9'); g.addColorStop(1,'#87CEEB');
+  ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // clouds
+  ctx.fillStyle='rgba(255,255,255,0.75)';
+  [[80,35,55,16],[250,25,70,15],[460,42,45,14],[650,30,60,15]].forEach(([cx,cy,cw,ch])=>{
+    const rx=((cx-camX*0.25)%canvas.width+canvas.width)%canvas.width;
+    ctx.beginPath(); ctx.ellipse(rx,cy,cw,ch,0,0,Math.PI*2); ctx.fill();
+  });
+}
+
+// ===== HUD =====
+function renderHotbar() {
+  const el=document.getElementById('hotbar'); el.innerHTML='';
+  P.inv.forEach((s,i)=>{
+    const d=document.createElement('div');
+    d.className='slot'+(i===P.slot?' active':'');
+    const b=s.id!==null?BID[s.id]:null;
+    d.innerHTML=`${b?b.e:'⛏️'}<span class="slot-name">${b?b.name:'Đào'}</span>${s.n>0?`<span class="slot-cnt">${s.n}</span>`:''}`;
+    d.onclick=()=>{ P.slot=i; renderHotbar(); };
+    el.appendChild(d);
+  });
+}
+
+let tipTimer=null;
+function showTip(msg) {
+  const el=document.getElementById('tip');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(tipTimer);
+  tipTimer=setTimeout(()=>el.classList.remove('show'),1800);
+}
+
+// ===== MOBILE DPAD =====
+function setupDpad() {
+  function hold(key,id) {
+    const el=document.getElementById(id);
+    el.addEventListener('touchstart',e=>{e.preventDefault();keys[key]=true;},{passive:false});
+    el.addEventListener('touchend',  e=>{e.preventDefault();keys[key]=false;},{passive:false});
+    el.addEventListener('mousedown', ()=>keys[key]=true);
+    el.addEventListener('mouseup',   ()=>keys[key]=false);
+  }
+  hold('ArrowLeft','btn-left');
+  hold('ArrowRight','btn-right');
+  hold(' ','btn-jump');
+}
+
+// Keyboard slot
+document.addEventListener('keydown',e=>{
+  const n=parseInt(e.key);
+  if(n>=1&&n<=7){P.slot=n-1;renderHotbar();}
+});
+
+// ===== LOOP =====
+let running=false;
+function loop() {
+  if(!running) return;
+  requestAnimationFrame(loop);
+  updatePlayer(); updateCam(); updateFX();
+  drawSky(); drawWorld(); drawPlayer(); drawFX(); drawCursor();
+  document.getElementById('xy').textContent=`${Math.floor(P.x/TILE)},${Math.floor(P.y/TILE)}`;
+}
+
+document.getElementById('start-btn').addEventListener('click',()=>{
+  document.getElementById('overlay').style.display='none';
+  genWorld();
+  // Spawn above ground
+  for(let y=2;y<ROWS;y++){
+    if(W[y][6]!==B.AIR.id){ P.x=6*TILE; P.y=(y-3)*TILE; break; }
+  }
+  renderHotbar();
+  setupDpad();
+  running=true;
+  loop();
+});
+</script>
+</body>
+</html>
